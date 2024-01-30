@@ -1,10 +1,11 @@
 import { AsyncDatabase } from "promised-sqlite3";
 import { v4 as uuidv4 } from "uuid";
+import type { HashedPassword } from "./auth";
 
 export interface User {
     id: number;
     email: string;
-    hashedPassword: string;
+    hashedPassword: HashedPassword;
     agreedToTerms: boolean;
 }
 
@@ -19,7 +20,7 @@ export class SquliteUserRepository implements UserRepository {
     async create(user: User): Promise<User> {
         const userID: { id: number } = await this.db.get(
             'INSERT INTO users (email, password, agreedToTerms) VALUES (?, ?, ?) RETURNING id',
-            [user.email, user.hashedPassword, user.agreedToTerms]
+            [user.email, user.hashedPassword.hashed, user.agreedToTerms]
         );
         return {
             ...user,
