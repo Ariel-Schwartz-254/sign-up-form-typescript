@@ -11,6 +11,8 @@ import { connect, newDb, SqliteSession, SquliteUserRepository } from "./db";
 import { comparePassword, hashPassword } from "./auth";
 import { clearFlashCookie, FLASH_MSG_COOKIE } from "./flash";
 import type { FastifyReply } from "fastify/types/reply";
+import { checkUsername } from "../shared/username-rules";
+import { checkComplexity } from "../shared/password-rules";
 
 dotenv.config();
 
@@ -80,8 +82,30 @@ fastify.get("/", async (request, reply) => {
     await reply.redirect("/signin");
 });
 
+fastify.get("/welcome", async (request, reply) => {
+    const sessionId = readSessionCookie(request);
+    if (sessionId === undefined) {
+        setFlashCookie(reply, "You must be logged in to view this page");
+        return await reply.redirect("/signin");
+    }
+
+    const db = await connect(USERS_DB);
+    const sessions = new SqliteSession(db);
+    const user = await sessions.get(sessionId);
+    if (user === undefined) {
+        setFlashCookie(reply, "Your session has expired");
+        return await reply.redirect("/signin");
+    }
+
+    const rendered = templates.render("welcome.njk", { emaill: user.email, environment });
+    return await reply
+        .header("Content-Type", "text/html; charset=utf-8")
+        .send(rendered);
+});
+
 fastify.get("/signup", async (request, reply) => {
-    const rendered = templates.render("signup.njk", { environment });
+    const serverMsg = readFlashCookie(request);
+    const rendered = templates.render("signup.njk", { server_msg: serverMsg, environment });
     return await reply
         .header("Content-Type", "text/html; charset=utf-8")
         .send(rendered);
@@ -98,6 +122,20 @@ fastify.post("/account/signup", async (request, reply) => {
 
     if (requestData.agreedToTerms !== "on") {
         setFlashCookie(reply, "You must agree to the terms of service");
+        return await reply.redirect("/signup");
+    }
+
+    const usernameFailures = checkUsername(requestData.email);
+    if (usernameFailures.length > 0) {
+        const formattedErrors = usernameFailures.join("<br>");
+        setFlashCookie(reply, formattedErrors);
+        return await reply.redirect("/signup");
+    }
+
+    const passwordFailures = checkComplexity(requestData.password);
+    if (passwordFailures.length > 0) {
+        const formattedErrors = passwordFailures.join("<br>");
+        setFlashCookie(reply, formattedErrors);
         return await reply.redirect("/signup");
     }
 
@@ -127,7 +165,8 @@ fastify.post("/account/signup", async (request, reply) => {
 });
 
 fastify.get("/signin", async (request, reply) => {
-    const rendered = templates.render("signin.njk", { environment });
+    const serverMsg = readFlashCookie(request);
+    const rendered = templates.render("signin.njk", { server_msg: serverMsg, environment });
     return await reply
         .header("Content-Type", "text/html; charset=utf-8")
         .send(rendered);
